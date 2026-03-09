@@ -18,6 +18,13 @@ The free [IP to Country Lite database](https://db-ip.com/db/download/ip-to-count
 
 Refer to the [INSTALL](INSTALL) file.
 
+### WSL2 / WSLg:
+
+This fork also keeps a WSL-specific source-build guide in
+[`doc/WSL_BUILD.md`](doc/WSL_BUILD.md). It captures the known-good local Qt
+6.5 build path, the WSLg runtime settings that worked here, and the extra
+notes that do not belong in the generic upstream `INSTALL` file.
+
 ### Public key:
 Starting from v3.3.4 all source tarballs and binaries are signed.<br />
 The key currently used is 4096R/[5B7CC9A2](https://pgp.mit.edu/pks/lookup?op=get&search=0x6E4A2D025B7CC9A2) with fingerprint `D8F3DA77AAC6741053599C136E4A2D025B7CC9A2`.<br />

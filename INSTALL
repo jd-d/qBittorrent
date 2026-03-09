@@ -35,6 +35,9 @@ Please ensure you are building with an officially supported configuration when r
 
   will install and execute qBittorrent.
 
+  For the WSL2 / WSLg-specific source-build path used in this fork, see
+  `doc/WSL_BUILD.md`.
+
 2b) Compile and install qBittorrent without Qt graphical interface
 
   $ cmake -B build -DCMAKE_BUILD_TYPE=Release -DGUI=OFF
