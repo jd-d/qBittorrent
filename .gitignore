@@ -43,3 +43,7 @@ src/icons/skin/build-icons/icons/*.png
 build/
 /build-*/
 /cmake-build-*/
+/.wsl-build/
+
+# Windows metadata sidecars that can appear in WSL worktrees
+*:Zone.Identifier

@@ -44,6 +44,7 @@ The best default approach is:
    - use `QT_QPA_PLATFORM=xcb` only if the local Qt build does not provide a
      working Wayland plugin under WSLg
    - apply the font fix only if the UI renders with empty square glyphs
+   - treat the Qt `Threads::Threads` workaround as conditional, not automatic
 
 In other words:
 
@@ -54,12 +55,52 @@ In other words:
 - If it fails, use this document as the fallback playbook and note which
   steps were actually necessary on the newer distro.
 
+### Ubuntu 22.04 vs 24.04
+
+| Area | Ubuntu 22.04 WSL build | Ubuntu 24.04 WSL build |
+|---|---|---|
+| Standard upstream build attempt | Not viable with distro packages | Almost viable with distro packages |
+| Boost from distro | `1.74`, too old | `1.83`, sufficient |
+| libtorrent from distro | `2.0.5`, too old | `2.0.10`, sufficient |
+| Qt from distro | `6.2.4`, too old | `6.4.2`, still too old |
+| Need custom Boost build | Yes | No |
+| Need custom libtorrent build | Yes | No |
+| Need custom Qt build | Yes | Yes |
+| Qt modules needed locally | `qtbase`, `qttools`, `qtsvg` | `qtbase`, `qttools`, `qtsvg` |
+| Need non-Snap/local CMake workaround | Yes | No, system `cmake 3.28.3` worked |
+| `Threads::Threads` Qt patch needed | Yes in the known-good 22.04 flow | No for initial `qtbase` configure on this machine |
+| Extra Qt source compatibility patch | Not the main differentiator in the final 22.04 path | Yes, guarded missing `XKB_KEY_dead_*` symbols in `qxkbcommon.cpp` |
+| Extra XCB/X11 dev packages needed for working `xcb` plugin | Effectively yes in the validated path | Yes, definitely needed before `libqxcb.so` was produced |
+| WSL runtime platform that worked | `xcb` | `xcb` |
+| Font fix needed | Yes | Yes |
+| Best dependency strategy | Full custom stack | Keep distro deps, replace only Qt |
+
+### What Was Observed On Ubuntu 24.04
+
+On the Ubuntu `24.04.4` WSL2 environment used in this workspace:
+
+- Boost `1.83` from the distro packages satisfied qBittorrent.
+- libtorrent-rasterbar `2.0.10` from the distro packages satisfied
+  qBittorrent.
+- Qt `6.4.2` from the distro packages was still too old for qBittorrent's
+  `>= 6.5.0` requirement.
+
+That means the standard distro-based build on Ubuntu 24.04 failed only on Qt.
+The least invasive fallback on that newer distro is therefore:
+
+1. keep distro Boost / libtorrent / OpenSSL / zlib
+2. build only a local Qt `6.5+`
+3. add just the extra Qt modules qBittorrent needs (`qttools`, `qtsvg`)
+
 ## Required System Packages
 
 Follow the normal project requirements in [INSTALL](../INSTALL) first.
 
 The following additional Linux packages were confirmed necessary in this WSL
-setup:
+setup.
+
+The first batch gets the standard qBittorrent build and the initial Qt build
+attempt moving:
 
 - `libgl1-mesa-dev`
 - `zlib1g-dev`
@@ -68,6 +109,42 @@ setup:
 - `libxcb1-dev`
 - `libxkbcommon-dev`
 - `libxkbcommon-x11-dev`
+
+On Ubuntu 24.04, a second batch was also needed before the local Qt build would
+actually install a working `xcb` platform plugin for WSLg:
+
+- `libxcb-icccm4-dev`
+- `libxcb-image0-dev`
+- `libxcb-keysyms1-dev`
+- `libxcb-render-util0-dev`
+- `libxcb-shape0-dev`
+- `libxcb-shm0-dev`
+- `libxcb-randr0-dev`
+- `libxcb-sync-dev`
+- `libxcb-xfixes0-dev`
+- `libxcb-cursor-dev`
+- `libxcb-util-dev`
+- `libxrender-dev`
+- `libxi-dev`
+- `libxext-dev`
+
+If you want a single Ubuntu 24.04 package install command that matches the
+working path from this workspace, this is the one:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential cmake ninja-build pkg-config \
+  qt6-base-dev qt6-tools-dev qt6-svg-dev \
+  libboost-dev libtorrent-rasterbar-dev \
+  libssl-dev zlib1g-dev \
+  libgl1-mesa-dev libx11-xcb-dev libxcb-glx0-dev libxcb1-dev \
+  libxkbcommon-dev libxkbcommon-x11-dev \
+  libxcb-icccm4-dev libxcb-image0-dev libxcb-keysyms1-dev \
+  libxcb-render-util0-dev libxcb-shape0-dev libxcb-shm0-dev \
+  libxcb-randr0-dev libxcb-sync-dev libxcb-xfixes0-dev \
+  libxcb-cursor-dev libxcb-util-dev libxrender-dev libxi-dev libxext-dev
+```
 
 ## Recommended Layout
 
@@ -82,6 +159,12 @@ export QT_SRC_DIR="$HOME/src/qt-everywhere-src-6.5.0"
 export QT_PREFIX="$HOME/qt6-6.5.0-install"
 export CMAKE_BIN="$HOME/.local/bin/cmake"
 ```
+
+If you are iterating through this flow with local tools or agents, prefer a
+persistent workspace path over `/tmp` for the Qt source tarball, extracted
+tree, build directory, and install prefix. In this workspace, using a repo-
+local directory such as `.wsl-build/` proved easier to resume and audit across
+multiple runs.
 
 ## Toolchain Notes
 
@@ -119,6 +202,14 @@ for qBittorrent `5.1.x`.
 
 ### WSL-specific Qt workaround
 
+This workaround was required on the Ubuntu 22.04 flow that originally produced
+this guide.
+
+On the Ubuntu 24.04.4 WSL2 environment used in this workspace, a clean
+repo-local `qtbase` configure completed successfully without applying this
+patch first. For newer Ubuntu releases, try an unpatched `qtbase` configure
+before editing the Qt source tree.
+
 The Qt build that worked here required a small local patch in:
 
 - `qtbase/cmake/QtPublicTargetHelpers.cmake`
@@ -143,11 +234,39 @@ function(__qt_internal_promote_target_to_global target)
 endfunction()
 ```
 
-Without that surgical change, the Qt configure/generate flow in this WSL
-environment alternated between:
+Without that surgical change, the Ubuntu 22.04 Qt configure/generate flow in
+this WSL environment alternated between:
 
 - `Threads::Threads` imported-global promotion errors, or
 - missing wrapper targets such as `WrapZLIB::WrapZLIB` / `WrapPNG::WrapPNG`
+
+### Ubuntu 24.04 xkbcommon compatibility note
+
+On the Ubuntu 24.04.4 WSL2 environment used in this workspace, the local Qt
+`qtbase` build later failed in `qtbase/src/gui/platform/unix/qxkbcommon.cpp`
+because the system `libxkbcommon-dev` headers did not define several newer
+`XKB_KEY_dead_*` keysyms that Qt 6.5 referenced.
+
+The practical fix was to guard those mappings so they are only compiled when
+the corresponding keysyms exist:
+
+```cpp
+#ifdef XKB_KEY_dead_lowline
+        Xkb2Qt<XKB_KEY_dead_lowline,            Qt::Key_Dead_Lowline>,
+#endif
+#ifdef XKB_KEY_dead_aboveverticalline
+        Xkb2Qt<XKB_KEY_dead_aboveverticalline,  Qt::Key_Dead_Aboveverticalline>,
+#endif
+#ifdef XKB_KEY_dead_belowverticalline
+        Xkb2Qt<XKB_KEY_dead_belowverticalline,  Qt::Key_Dead_Belowverticalline>,
+#endif
+#ifdef XKB_KEY_dead_longsolidusoverlay
+        Xkb2Qt<XKB_KEY_dead_longsolidusoverlay, Qt::Key_Dead_Longsolidusoverlay>,
+#endif
+```
+
+This was not part of the Ubuntu 22.04 flow, but it was required here to finish
+the local Qt build on Ubuntu 24.04.
 
 ### Configure and build qtbase
 
@@ -167,6 +286,27 @@ cd "$QT_SRC_DIR/build"
 "$CMAKE_BIN" --build . --parallel
 "$CMAKE_BIN" --install . --prefix "$QT_PREFIX"
 ```
+
+On the Ubuntu 24.04.4 WSL2 environment used in this workspace, this `qtbase`
+configure step succeeded cleanly with:
+
+- system Boost from Ubuntu packages
+- system libtorrent-rasterbar from Ubuntu packages
+- system CMake `3.28.3`
+- no Qt source patch applied yet
+
+After the second XCB/X11 package batch above was installed, re-running this
+same `qtbase` configure changed the XCB section to:
+
+- `GLX Plugin`: `yes`
+- `XCB GLX`: `yes`
+- `EGL-X11 Plugin`: `yes`
+
+and the resulting install contained:
+
+- `$QT_PREFIX/plugins/platforms/libqxcb.so`
+- `$QT_PREFIX/plugins/xcbglintegrations/libqxcb-glx-integration.so`
+- `$QT_PREFIX/plugins/xcbglintegrations/libqxcb-egl-integration.so`
 
 Verify the install:
 
@@ -251,6 +391,52 @@ Known-good launch command:
 
 ```bash
 cd "$QBT_SRC_DIR/build-localqt"
+QT_QPA_PLATFORM=xcb \
+LIBGL_ALWAYS_SOFTWARE=1 \
+LD_LIBRARY_PATH="$QT_PREFIX/lib:/usr/local/lib" \
+./qbittorrent
+```
+
+### Launching The Local Build
+
+Only part of the local launcher logic is truly WSL-specific.
+
+The WSL-specific runtime pieces are:
+
+- `QT_QPA_PLATFORM=xcb`
+- `LIBGL_ALWAYS_SOFTWARE=1`
+- `LD_LIBRARY_PATH` including the local Qt `lib` directory
+
+Everything else in this workspace's launcher is mostly local convenience:
+
+- defaulting to this repository's `.wsl-build/qt6-6.5.0-install`
+- defaulting to `build-localqt/qbittorrent`
+- creating repo-local runtime directories under `.wsl-build/`
+- providing a font-directory fallback when needed
+
+So the portable way to think about launching is:
+
+1. make sure the local Qt prefix is on `LD_LIBRARY_PATH`
+2. prefer `QT_QPA_PLATFORM=xcb` for this WSLg setup
+3. use software rendering if OpenGL acceleration is unreliable
+
+For this workspace specifically, you can also use the repo-root helper:
+
+```bash
+./launch-localqt.sh
+```
+
+That helper wraps the same `xcb` / software-rendering / local-Qt runtime setup
+and also keeps cache, config, and data files inside `.wsl-build/` for easier
+cleanup and repeatability.
+
+If you want the repo-local launcher shape used successfully in this workspace,
+it can also help to keep the runtime state inside the repository:
+
+```bash
+XDG_CACHE_HOME="$QBT_SRC_DIR/.wsl-build/runtime-cache" \
+XDG_CONFIG_HOME="$QBT_SRC_DIR/.wsl-build/runtime-config" \
+XDG_DATA_HOME="$QBT_SRC_DIR/.wsl-build/runtime-data" \
 QT_QPA_PLATFORM=xcb \
 LIBGL_ALWAYS_SOFTWARE=1 \
 LD_LIBRARY_PATH="$QT_PREFIX/lib:/usr/local/lib" \
