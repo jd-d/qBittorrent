@@ -47,3 +47,5 @@ build/
 
 # Windows metadata sidecars that can appear in WSL worktrees
 *:Zone.Identifier
+qBittorrent.code-workspace
+doc/REFERENCE_BUILD_LOGBOOK_UBUNTU22.md
